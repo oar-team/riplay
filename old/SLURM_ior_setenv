@@ -1,0 +1,7 @@
+#!/bin/bash
+export IOR_NODES=$SLURM_JOB_NODELIST
+export IOR_JOB_ID=$SLURM_JOB_ID
+NB_PROCS=$1
+
+
+./mpi_ior $NB_PROCS ssh

@@ -1,0 +1,19 @@
+#!/bin/sh
+#SBATCH -J $joblabel
+#SBATCH -n $nodes
+#SBATCH -t $walltime
+#SBATCH -o /home/g5k/BENCHS/esp-2.2.1/logs/$joblabel.out
+
+HOSTFILE="/tmp/nodes.\$SLURM_JOB_ID"
+ESP=/home/g5k/BENCHS/esp-2.2.1/
+srun -l /bin/hostname | sort -n | awk '{print \$2}' | sed 's/.grenoble.grid5000.fr//g' > /tmp/nodes.\$SLURM_JOB_ID
+
+echo `\$ESP/bin/epoch` " START  $joblabel   Seq_\${SEQNUM}" >> \$ESP/LOG
+#$timer mpirun -np $np --hostfile \$HOSTFILE $cline
+$cline
+echo `\$ESP/bin/epoch` " FINISH $joblabel   Seq_\${SEQNUM}" >> \$ESP/LOG
+
+
+rm \$HOSTFILE
+
+exit

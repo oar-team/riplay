@@ -1,0 +1,15 @@
+#!/bin/sh
+#OAR -n $joblabel
+#OAR -l $nodes
+#OAR --stdout /mnt/dfs/esp/logs/$joblabel.out
+#OAR --stderr /mnt/dfs/esp/logs/$joblabel.err
+
+ESP=/mnt/dfs/esp
+
+echo `date +%s` " START  $joblabel" >> \$ESP/LOG
+#$timer mpirun -np $np --hostfile \$OAR_NODEFILE --mca plm_rsh_agent "oarsh" $cline
+mpirun -np $np --hostfile \$OAR_NODEFILE --mca plm_rsh_agent "oarsh" $cline -F -o /mnt/dfs/\$OAR_JOB_ID
+#mpiexec -machinefile \$OAR_NODE_FILE -n $np $cline
+echo `date +%s` " FINISH $joblabel" >> \$ESP/LOG
+
+exit
