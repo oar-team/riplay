@@ -1,0 +1,92 @@
+:
+# use perl
+    eval 'exec perl -S $0 ${1+"$@"}'
+	if $running_under_some_shell;
+$running_under_some_shell = 0;
+
+use strict;
+use warnings;
+
+our ($basedir);
+
+# find the base directory of the script
+BEGIN {
+	$basedir = $0;
+	if ($basedir =~ s{/[^/]*$}{} ) {
+		$basedir = "."	if $basedir =~ /^$/;
+	} else {
+		$basedir = ".";
+	}
+}
+
+sub usage {
+	$0 =~ s{^.*/}{};	# strip to basename
+	print <<EOF ;
+$0 - submit one or more tbatch jobs, can either give the necessary
+	parameters on the commandline or within the batch job scripts.
+	Commandline values overwrite those found in the job scripts.
+
+$0 [-h][-v] [-l LABEL][-s SIZE][-t SECS] batchfile [...]
+	-h		this helpful info
+	-v		verbose info
+	-l LABEL	job label
+	-s SIZE		number of "pipes" to fill
+	-t SECS		how long to fill the "pipes" in seconds
+	-T SECS		seconds since epoch
+	batchfile	to submit
+
+Scripts can define the following with
+	JOBLABEL=<LABEL>
+	NPIPES=<SIZE>
+	NSECS=<SECS>
+
+EOF
+	print q{version: $Id: tsubmit,v 1.2 2008/04/08 16:34:32 rkowen Exp $},"\n\n";
+}
+
+use lib "$basedir";
+use Getopt::Std;
+use Tie::File;
+require "tbatch.pm";
+
+our ($opt_h, $opt_v, $opt_l, $opt_s, $opt_t, $opt_T);
+getopts("hvl:s:t:T:");
+
+if ($opt_h) {
+	&usage;
+	exit;
+}
+
+&basedir($basedir);
+
+while (my $file = shift @ARGV) {
+	if (! -f $file) {
+		warn "File '$_' does not exist\n";
+		next;
+	}
+	my ($joblabel, $npipes, $nsecs) = &parsebatchfile($file);
+	$joblabel	= $opt_l	if $opt_l;
+	$npipes		= $opt_s	if $opt_s;
+	$nsecs		= $opt_t	if $opt_t;
+	$joblabel	= $_		if ! defined $joblabel;
+	$npipes		= 0		if ! defined $npipes;
+	$nsecs		= 0		if ! defined $nsecs;
+	$opt_T		= time		if ! defined $opt_T;
+	print "file=$file,\tlabel=$joblabel,\tsize=$npipes,\tsecs=$nsecs\n"
+		if $opt_v;
+	&AddQueueRecord($file,$joblabel,$npipes,$nsecs,$opt_T);
+}
+
+sub parsebatchfile {
+	my $file = shift;
+	open TFILE,$file || die "Could not open '$file'\n";
+
+	my ($joblabel, $npipes, $nsecs);
+	while (<TFILE>) {
+		$joblabel	= $1	if /\bJOBLABEL\s*=\s*(\S*)/;
+		$npipes		= $1	if  /\bNPIPES\s*=\s*(\S*)/;
+		$nsecs		= $1	if  /\bNSECS\s*=\s*(\S*)/;
+	}
+	close TFILE;
+	return ($joblabel, $npipes, $nsecs);
+}
