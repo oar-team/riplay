@@ -119,7 +119,7 @@ def load_swf_file(file_name, job_start, job_end)
 				bad_stat.zero_procs_jobs += 1	
                                 #bad = true
 			end
-                        
+
                         if (job.procs_alloc != job.procs_req)    # set proc_req and proc_alloc to the same value if they differ. otherwise may cause troubles later in analyze
                                 
                                 job.procs_req = job.procs_alloc   # because in models proc_req is equal to -1
@@ -129,7 +129,7 @@ def load_swf_file(file_name, job_start, job_end)
                                 #job.procs_req = job.procs_alloc = max
                                 #bad = true
                         end
-	
+
 			if job.status != 1
 				bad_stat.non_1_status_jobs += 1
                         end

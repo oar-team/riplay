@@ -27,6 +27,7 @@ Usage ./riplay [OPTIONS]
                 --scale | -x nb_procs: number of procs in the cluster where the trace will be submitted
                 --time_scale | -t coefficient: timescale reducing coefficient
                 --replay_environment | -r replay the trace in its environment (queued and running jobs)
+                --users | -u submit job as users (only works with slurm)
 EOS
 end
 
@@ -41,13 +42,15 @@ opts = GetoptLong.new(
 [ "--endjob","-e",              GetoptLong::REQUIRED_ARGUMENT ],
 [ "--scale","-x",              GetoptLong::REQUIRED_ARGUMENT ],
 [ "--time_scale","-t",              GetoptLong::REQUIRED_ARGUMENT ],
-[ "--replay_environment","-r",              GetoptLong::NO_ARGUMENT ]
+[ "--replay_environment","-r",              GetoptLong::NO_ARGUMENT ],
+[ "--users","-u",              GetoptLong::NO_ARGUMENT ]
 )
 
 $job_type = 'sleep'
 $output_dir = '.'
 $debug = false
 $env = false
+$use_users = false 
 
 opts.each do |option, value| 
         if (option == "--swf_file")
@@ -70,10 +73,21 @@ opts.each do |option, value|
                 $debug = true 
         elsif (option == "--replay_environment")
                 $env = true 
+        elsif (option == "--users")
+                $use_users = true
         elsif (option == "--help")
                 puts usage_message
                 exit 0
   end
+end
+
+if ($use_users && Process.uid != 0)
+        puts 'With option "--users", riplay must run as root.' 
+        exit 1
+end
+if ($use_users && $batch == 'OAR')
+        puts 'OAR can\'t deal with option "--users" for now.' 
+        exit 1
 end
 
 ############
@@ -85,7 +99,7 @@ def submit(job, schedule_now)
     if ($batch == "OAR" || $batch == "oar" )
         oarsub(job, $job_type, $output_dir, schedule_now)
     elsif ($batch == "SLURM" || $batch == "slurm" )      
-        sbatch(job, $job_type, $output_dir, schedule_now)
+        sbatch(job, $job_type, $output_dir, schedule_now, $use_users)
     end
 end
 

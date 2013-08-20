@@ -4,10 +4,16 @@ require 'pp'
 require "lib_swf.rb"
 require "JOB.rb"
 
-def sbatch(job, type, output_dir, schedule_now)
+def sbatch(job, type, output_dir, schedule_now, use_users)
     job_id = job.job_id
     construct_script_slurm(job, type, output_dir)
     command = "sbatch"
+    
+    if use_users
+       user_id = "%03d" % job.user_id
+       command = "#{command} --uid=3#{user_id}" 
+    end
+    
     if(!schedule_now)
        command = "#{command} --hold" 
     end
@@ -48,7 +54,6 @@ def construct_script_slurm(job, type, output_dir)
         f.puts "#\!/bin/sh"
         f.puts "#SBATCH -J riplay_#{job_id}_#{type}"
 	f.puts "#SBATCH -n #{nb_procs}"
-        #f.puts "#SBATCH --cpus-per-task 1"
         f.puts "#SBATCH -t #{walltime}"
         f.puts "#SBATCH -o #{output_dir}/riplay_slurm_#{type}_#{job_id}.out"
         f.puts ""
