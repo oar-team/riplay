@@ -1,0 +1,107 @@
+:
+# use perl
+    eval 'exec perl -S $0 ${1+"$@"}'
+	if $running_under_some_shell;
+$running_under_some_shell = 0;
+
+use strict;
+use warnings;
+
+our ($basedir,$NPIPES);
+
+# find the base directory of the script
+BEGIN {
+	$basedir = $0;
+	if ($basedir =~ s{/[^/]*$}{} ) {
+		$basedir = "."	if $basedir =~ /^$/;
+	} else {
+		$basedir = ".";
+	}
+}
+
+sub usage {
+	$0 =~ s{^.*/}{};	# strip to basename
+	print <<EOF ;
+$0 - "run" through the series of batch scripts that are queued.
+	The scripts are not actually run, but their representations
+	are passed through the batch queue.
+
+$0 [-h][-v][-r]
+	-h		this helpful info
+	-v		verbose info
+	-r		run in real time (should put script in the background)
+	-p		pause 1 sec if not in real mode
+	-t secs		sampling time (default = 10 secs)
+	-i		initialize (or empty) the run queue
+	-d		display run and queue at each cycle
+	-x loops	if idle for this many loops then shutdown (default = 6)
+	-S scheduler	which scheduler to use.
+			(Default=FCFS - first come, first serve)
+
+	NPIPES = $NPIPES
+
+EOF
+	print q{version: $Id: tbatch,v 1.3 2008/05/07 17:29:37 rkowen Exp $},"\n\n";
+}
+
+use Getopt::Std;
+use Tie::File;
+use lib "$basedir";
+
+require "tconfig.pm";
+require "tbatch.pm";
+
+our (@qdb, @rdb,
+	$opt_h, $opt_v, $opt_r, $opt_p, $opt_t, $opt_d, $opt_i, $opt_x, $opt_S);
+getopts("hvrpt:dix:S:");
+
+&npipes($NPIPES);
+if ($opt_h) {
+	&usage;
+	exit;
+}
+
+$opt_t = 10		if ! defined $opt_t;
+$opt_x = 6		if ! defined $opt_x;
+$opt_S = "FCFS"		if ! defined $opt_S;
+require $opt_S.".pm";
+
+&basedir($basedir);
+if (defined $opt_i) {
+	&RunInit;
+} else {
+	# get max job number
+	my $jn = &RunMaxJobNum();
+	$jn++	if   defined $jn;
+	$jn=0	if ! defined $jn;
+	&Job($jn);
+}
+
+my $idle = 0;
+while (1) {
+	&Epoch(time)	if $opt_r;
+	&RunEndTime( &Epoch );
+	while(&ChooseNext) {};
+	printf "%d\n%s%s%d\n",
+		&Epoch,
+		&ShowQueue(undef,1), &ShowRunning(undef,1),
+		&Epoch
+		if $opt_d;
+	if ($opt_r) {
+		sleep($opt_t);
+		&Epoch(time);
+	} else {
+		# slow it down a little bit, else get driven crazy
+		sleep(1)	if $opt_p;
+		&EpochIncr($opt_t);
+	}
+	&QueueTie;
+	my $count = scalar @qdb;
+	&QueueUntie;
+	my $list = &RunGetFreeList;
+	$count += (&npipes - scalar @$list);
+	$idle++		if ! $count;
+	last if ($opt_x && $idle > $opt_x);
+}
+
+1;

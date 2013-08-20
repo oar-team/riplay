@@ -1,0 +1,105 @@
+
+This directory contains a batch scheduling simulator, where the
+given scheduler is FCFS (first come, first served).  Other ones
+can be crafted for more realistic behavior.  The given FCFS scheduler
+also stops releasing more jobs whenever a Z_* job is submitted, which
+is a priority job that requires the entire set of pipes and "immediate"
+process after the pipes are cleared.
+
+This simulator is provided to complement the TEST module, and to
+test or to try the various components.
+
+TEST MODE
+
+First thing to do when running a test with the simulator is to generate
+the appropriate jobmix job files by entering into ../jobmix directory
+and running mkjobmix
+	./mkjobmix -v -s SIZE -b TEST
+where SIZE is the maximum number of processing elements (PEs) that will
+be scheduled.
+
+Edit the sim/tconfig.pm configuration file to set NPIPES equal to the
+the size given above.  The default for the distribution is 32.
+
+The test can be run in real-time as described here or in a compressed
+time mode described later.
+
+COMPRESSED-TIME
+
+This is where the entire suite of batch jobs, except for the "Z" jobs,
+can be submitted in 4 minutes and run through the scheduler in less than
+10 secs.
+
+Set up the batch jobs as before.  This time run
+
+	./runesp -v -t -I 999
+
+and let it submit all the batch jobs prior to running tbatch.  This takes
+about 4 minutes due to the processing overhead with each submission.
+Once you notice that the "Queued" number is static (with about 230 jobs),
+then it's possible to run the scheduler which will handle the jobs as
+fast as it can, which compresses a 3.6 hour run to about ten seconds.
+
+	sim/tbatch -i -v -d
+
+However, this does not mimic the full ESP test, because it can not handle
+the priority "Z" jobs as in a full test.
+
+If this is too fast, then add the -p option to insert a one second
+pause between each iteration, which results in a 20 min run.
+
+MULTIPLE TESTS
+
+If a number of tests, with possibly different schedulers, are to be
+preformed.  A simple way to speed up the steps is to execute runesp
+once and save the sim/tqueue.db file somewhere else.  Then prior to
+running tbatch just copy this tqueue.db to the sim/ directory and
+try a running tbatch with compressed time.  Any number of tests
+can be run this way.
+
+COMPRESSED-REALTIME
+
+Here we can run a simulated REAL-TIME job in approximately a tenth of the
+real time.  A 3.6 hour run should be a more reasonable 25 minute run.
+
+Remove the current LOG file to start with a fresh one.
+	rm LOG
+
+Start the scheduler by running the sim/tbatch script
+
+	sim/tbatch -i -v -p -x 60 -d
+
+in another window so the running and queued jobs can be watched.
+
+In the current window run runesp to start submitting jobs (this needs to
+start within 60 seconds of the start of tbatch).
+
+	./runesp -v -C 10
+
+Now just wait for everything to finish.  This will be signalled when
+the output from runesp has a non-zero value for espdone.
+
+
+COPYRIGHT AND LICENCE
+
+AUTHOR: R K Owen, Ph.D., <rkowen@nersc.gov>
+of the National Energy Research Scientific Computing Center (NERSC),
+a Division of the Lawrence Berkeley National Laboratory (LBL),
+funded by the U.S. Department of Energy.
+
+Copyright (C) 2008 The Regents of the University of California
+
+This is free software; you can redistribute it
+and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation;
+version 2.0 of the License.
+
+This code is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty
+of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
+the GNU Lesser General Public License for more details,
+which can be found at:
+
+        LICENSE.GPL
+or      http://www.gnu.org/licenses/
+

@@ -1,0 +1,69 @@
+:
+# use perl
+    eval 'exec perl -S $0 ${1+"$@"}'
+	if $running_under_some_shell;
+$running_under_some_shell = 0;
+
+use strict;
+use warnings;
+
+our ($basedir);
+
+# find the base directory of the script
+BEGIN {
+	$basedir = $0;
+	if ($basedir =~ s{/[^/]*$}{} ) {
+		$basedir = "."	if $basedir =~ /^$/;
+	} else {
+		$basedir = ".";
+	}
+}
+
+sub usage {
+	$0 =~ s{^.*/}{};	# strip to basename
+	print <<EOF ;
+$0 - view the current running or queued "jobs", the default is both
+
+$0 [-h][-v] [-r|-q| ] [-l LABEL]
+	-h		this helpful info
+	-v		verbose info
+	-r		running jobs only
+	-q		queued  jobs only
+	-R		reverse the order of lines
+	-l LABEL	job label
+
+EOF
+	print q{version: $Id: tstat,v 1.2 2008/04/08 16:34:32 rkowen Exp $},"\n\n";
+}
+
+use Getopt::Std;
+use Tie::File;
+use lib "$basedir";
+require "tbatch.pm";
+
+our ($opt_h, $opt_v, $opt_r, $opt_q, $opt_R, $opt_l);
+getopts("hvrqRl:");
+
+if ($opt_h) {
+	&usage;
+	exit;
+}
+
+$opt_q = $opt_r = 1	if (! defined $opt_q) && (! defined $opt_r);
+
+&basedir($basedir);
+
+#		stat	job#	label	size	secs	start	end
+my $rformat =	"R 	%d	%s	%d	%d	%d	%d\n";
+#		stat		label	size	secs	submitted
+my $qformat =	"Q 	_	%s	%d	%d	%d\n";
+
+if ($opt_R) {
+	print &ShowQueue($opt_l,1)	if ($opt_q);
+	print &ShowRunning($opt_l,1)	if ($opt_r);
+} else {
+	print &ShowRunning($opt_l)	if ($opt_r);
+	print &ShowQueue($opt_l)	if ($opt_q);
+}
+
+exit;

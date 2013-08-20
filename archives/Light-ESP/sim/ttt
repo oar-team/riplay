@@ -1,0 +1,24 @@
+:
+# use perl
+    eval 'exec perl -S $0 ${1+"$@"}'
+	if $running_under_some_shell;
+$running_under_some_shell = 0;
+
+use strict;
+use warnings;
+
+our ($NPIPES);
+
+use Tie::File;
+use lib ".";
+
+require "tconfig.pm";
+require "tbatch.pm";
+require "FCFS.pm";
+
+&npipes($NPIPES);
+print "jn = ", &RunMaxJobNum();
+Job(&RunMaxJobNum() + 1);
+print "next = ", &ChooseNext(),"\n";
+
+1;
