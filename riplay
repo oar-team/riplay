@@ -89,6 +89,9 @@ if ($use_users && $batch == 'OAR')
         puts 'OAR can\'t deal with option "--users" for now.' 
         exit 1
 end
+if ($use_users)
+        puts "WARNING: if current directory is not chmod 777, slurm can fail without error."
+end
 
 ############
 # Functions

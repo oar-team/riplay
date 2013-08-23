@@ -6,12 +6,13 @@ require "JOB.rb"
 
 def sbatch(job, type, output_dir, schedule_now, use_users)
     job_id = job.job_id
-    construct_script_slurm(job, type, output_dir)
+    construct_script_slurm(job, type, output_dir, use_users)
     command = "sbatch"
     
     if use_users
-       user_id = "%03d" % job.user_id
-       command = "#{command} --uid=3#{user_id}" 
+#        user_id = "%03d" % job.user_id
+       user_id = job.user_id
+       command = "#{command} --uid=user#{user_id}" 
     end
     
     if(!schedule_now)
@@ -38,7 +39,7 @@ def slurmresume(jobs)
 end
 
 
-def construct_script_slurm(job, type, output_dir)
+def construct_script_slurm(job, type, output_dir, use_users)
     if(job.run_time_req == -1) 
        job.run_time_req = 3600 
     end    
@@ -57,7 +58,7 @@ def construct_script_slurm(job, type, output_dir)
         f.puts "#SBATCH -t #{walltime}"
         f.puts "#SBATCH -o #{output_dir}/riplay_slurm_#{type}_#{job_id}.out"
         f.puts ""
-        f.puts "#{get_job_code(job, type, output_dir, 'SLURM')}"
+        f.puts "#{get_job_code(job, type, output_dir, 'SLURM', use_users)}"
         f.puts ""
         f.puts "exit 0"
         f.puts ""  

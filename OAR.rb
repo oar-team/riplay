@@ -41,7 +41,7 @@ def construct_script_oar(job, type, output_dir)
 	f.puts "#OAR --stdout #{output_dir}/riplay_oar_#{type}_#{job_id}.out"
 	f.puts "#OAR --stderr #{output_dir}/riplay_oar_#{type}_#{job_id}.err"
 	f.puts ""
-	f.puts "#{get_job_code(job, type, output_dir, 'OAR')}"
+	f.puts "#{get_job_code(job, type, output_dir, 'OAR', false)}"
 	f.puts ""
 	f.puts "exit 0"
 	f.puts ""  
