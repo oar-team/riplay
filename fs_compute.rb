@@ -5,25 +5,68 @@
 # assumption: the compute time is less than a minute
 
 
+# date > DADA ; ruby fs_compute.rb >> DADA ; date >> DADA
+
 require "lib_swf.rb"
 
-$slurm_get_priority_calc_period = 1 * 60
-$slurm_get_priority_decay_hl  = 7*24*3600
+########################################################
+
+#slurm.conf options:
+# dont touch this one:
+$slurm_get_priority_calc_period = 5*60
+
+$slurm_get_priority_decay_hl  = 14*24*3600
+
+#not implemented:
 $slurm_get_priority_reset_period  = 'useless'
 
-$SLURM_SUCCESS = 0
-$SLURM_ERROR = 1
+
+#input file
+$SWF_FILE = 'curie_CLEANED.swf'
+# print debug infos
+$print_debug = false
+# print steps infos (which step is executed)
+$print_steps = true
+#print in sshare format or a parsable format
+$print_sshare = false
+
+#super jump allow to jump over useless __decay_thread loops and BOOST A LOT the code
+#in introduce SMALL changes in some results
+$do_super_jump = true
+
+#start to read the swf starting from $start_at
+ # 16072817 = au 10000
+$start_at = 0 #52510885-16072817
+
+#this tool print sshare at 0 and at the end of the swf.
+#if you want more prints, add the time in the following array
+#these times can be higher than the end of the swf (the computation continue)
+$list_of_print_time = [0, 52510885-16072817, 52510885, 52510885+60]
 
 
+########################################################
 
-$print_debug = true
+#sanitize $list_of_print_time
+$list_of_print_time.sort!
+$list_of_print_time.map! do |t|
+	if t - $start_at < 0
+		$start_at
+# 	t = t - $start_at
+# 	if t < 0
+# 		0
+	else
+		t
+	end
+end
+$list_of_print_time.uniq!
 
+
+#dafuq ?
 SLURMDB_FS_USE_PARENT = 42
 
 
-# the fairesharing will be computed for $min_run_time at least (more if there is jobs ending after this time)
-$min_run_time = 60*7
-
+$SLURM_SUCCESS = 0
+$SLURM_ERROR = 1
 
 
 def IS_JOB_PENDING(a)
@@ -34,6 +77,11 @@ end
 def debug(format, *arg)
         if $print_debug
                 printf(format,*arg)
+        end
+end
+def print_steps(a)
+        if $print_steps
+               puts a
         end
 end
 
@@ -59,13 +107,13 @@ class Slurmdb_association_rec_t
 	@parent_assoc_ptr = parent
 	
 	
-	@usage_usage_efctv = 0;
-	@usage_usage_norm = 0#nil #NO_VAL;
-	@usage_usage_raw = 0;
+	@usage_usage_efctv = 0.0;
+	@usage_usage_norm = 0.0#nil #NO_VAL;
+	@usage_usage_raw = 0.0;
 	
-	@usage_usage_energy_efctv = 0;
-	@usage_usage_energy_norm = 0#nil #NO_VAL;
-	@usage_usage_energy_raw = 0;
+	@usage_usage_energy_efctv = 0.0;
+	@usage_usage_energy_norm = 0.0#nil #NO_VAL;
+	@usage_usage_energy_raw = 0.0;
 	
 # 	@usage_level_shares = nil #NO_VAL;
 # 	@usage_shares_norm = nil #NO_VAL;
@@ -74,7 +122,7 @@ class Slurmdb_association_rec_t
 	@acct = 'fooAssoc' #/* account/project associated to association */
 # 	@grp_used_wall = 0 # dafuq ? useless
 	@level_shares = SLURMDB_FS_USE_PARENT # dafuq ?
-	@shares_raw = 1 # /* number of shares allocated to association */
+	@shares_raw = 1.0 # /* number of shares allocated to association */
 	
     end
     
@@ -137,6 +185,23 @@ class Slurmdb_association_rec_t
         @children.map { |child| child.print_sshare(indent + 1) }
     end
     
+    def print_parsable()
+            print @name.to_s
+            print ','
+            print @usage_usage_raw.to_s
+            print ','
+            print @usage_usage_energy_raw.to_s
+            print "\n"
+	    @children.map { |child| child.print_parsable() }
+    end
+    
+    def print_parsable_or_sshare()
+	    if $print_sshare
+		    print_sshare()
+	    else
+		    print_parsable()
+	    end
+    end
     
     def to_s_children(indent=0)
         value_s = self.to_s_me()
@@ -167,7 +232,7 @@ end
 
 
 
-
+print_steps("++++++++++++++++++++++++++++++ INIT assocs and JOB")
 
 #contain the jobs actually running
 #(in slurm it's not exactly the case : 
@@ -175,37 +240,46 @@ end
 $job_list = []
 
 JobShort =  Struct.new(:job_id, :start_time, :end_time, :run_time, :total_cpus, :consumed_energy, :assoc_ptr)
-jobs = load_swf_file('small.swf', nil, nil)
+print_steps("++++++++++++++++++++++++++++++ load SWF")
+jobs = load_swf_file($SWF_FILE, nil, nil)
 jobs.delete("info")
 $jobs_to_be_ran = []
 assocs = Hash.new
 $assoc_mgr_root_assoc = Slurmdb_association_rec_t.new('root', nil)
+$assoc_mgr_root_assoc.usage_usage_efctv = 1.0
+$assoc_mgr_root_assoc.usage_usage_energy_efctv = 1.0
 
 $assoc_mgr_root_assoc.children << Slurmdb_association_rec_t.new("root/root", $assoc_mgr_root_assoc)
-
+print_steps("++++++++++++++++++++++++++++++ job filter "+jobs.length.to_s)
 jobs.each_pair do |jid, j|
 # 	:job_id, :submit_time, :wait_time, :run_time, :procs_alloc, :cpu_time_used, :used_memory, :procs_req, :run_time_req, :mem_req, 
 #     :status, :user_id, :group_id, :exe_num, :queue_id, :partition_id, :preceding_job_id, :preceding_job_think_time
 	
-	if assocs[j["user_id"]] == nil
-		assocs[j["user_id"]] = Slurmdb_association_rec_t.new('user'+j["user_id"].to_s, $assoc_mgr_root_assoc)
-		$assoc_mgr_root_assoc.children << assocs[j["user_id"]]
+	if $start_at <= j.submit_time+j.wait_time
+		
+		if assocs[j["user_id"]] == nil
+			assocs[j["user_id"]] = Slurmdb_association_rec_t.new('user'+j["user_id"].to_s, $assoc_mgr_root_assoc)
+			$assoc_mgr_root_assoc.children << assocs[j["user_id"]]
+		end
+		
+		job = JobShort.new(
+			j.job_id,
+			j.submit_time+j.wait_time,
+			j.submit_time+j.wait_time + j.run_time,
+			j.run_time, j.procs_alloc, 0, assocs[j["user_id"]])
+		$jobs_to_be_ran << job
+	
 	end
-	
-        # we add $slurm_get_priority_calc_period+1 to start_time and end_time to have some time in the beginning
-	job = JobShort.new(
-                j.job_id,
-                j.submit_time+j.wait_time + $slurm_get_priority_calc_period+1,
-                j.submit_time+j.wait_time+j.run_time+ $slurm_get_priority_calc_period+1,
-                j.run_time, j.procs_alloc, 0, assocs[j["user_id"]])
-	$jobs_to_be_ran << job
-	
-	
-	
 end
+print_steps("++++++++++++++++++++++++++++++ sort job "+$jobs_to_be_ran.length.to_s)
 $jobs_to_be_ran.sort! {| a, b | a[:start_time] <=> b[:start_time] }
 jobs = nil #delete !
 
+dd = $jobs_to_be_ran.first
+debug("first job:"+dd.start_time.to_s + "//" + dd.total_cpus.to_s + "//" + dd.end_time.to_s+"\n")
+dd = $jobs_to_be_ran.last
+debug("last job:"+dd.start_time.to_s + "//" + dd.total_cpus.to_s + "//" + dd.end_time.to_s+"\n")
+print_steps("++++++++++++++++++++++++++++++ STOP assocs and JOB")
 
 #in sec
 $actual_time = 0
@@ -213,7 +287,40 @@ $actual_time = 0
 
 # update actual_time to actual_time+time_add
 # update $job_list according to the time
-def update_job_list(time_add)
+def update_job_list(time_add, dontSuperJump=false)
+# 	p "update_job_list   " +$job_list.length.to_s + " && " + $jobs_to_be_ran.length.to_s+ "   at:"+$actual_time.to_s+" tryto:"+time_add.to_s
+# 	p "next_event  print_time:"+
+# 			$list_of_print_time.first.to_s+"//"+
+# 		(($list_of_print_time.first/$slurm_get_priority_calc_period).floor*$slurm_get_priority_calc_period).to_s+
+# 		"  job:"+$jobs_to_be_ran.first.start_time.to_s+"//"+
+# 		(( $jobs_to_be_ran.first.start_time/$slurm_get_priority_calc_period).floor*$slurm_get_priority_calc_period).to_s
+	#super jump !
+	if $do_super_jump && !dontSuperJump && $job_list.length == 0 && $jobs_to_be_ran.length != 0
+		#is the next event a job starting ?
+		next_event =$jobs_to_be_ran.first.start_time
+
+		if $list_of_print_time.length != 0 && $list_of_print_time.first < next_event
+			next_event = $list_of_print_time.first
+		end
+		
+		next_event =(( next_event/$slurm_get_priority_calc_period).floor*$slurm_get_priority_calc_period)
+
+		if next_event- $actual_time > time_add
+			debug("SUPER JUMP of "+(next_event - $actual_time).to_s+ " (instead of the normal jump of "+time_add.to_s+")\n")
+			time_add = next_event - $actual_time
+		end
+	end
+	
+	#print sshare if necessary
+	while ($list_of_print_time.length != 0) &&
+			($actual_time <= $list_of_print_time.first) &&
+			($list_of_print_time.first < $actual_time+ time_add) do
+		puts "---------------------------------------------- At "+$list_of_print_time.first.to_s+ ", last exec at "+(($actual_time/$slurm_get_priority_calc_period).floor*$slurm_get_priority_calc_period).to_s
+		$assoc_mgr_root_assoc.print_parsable_or_sshare()
+		$list_of_print_time = $list_of_print_time.drop(1)
+	end
+	
+	
 	$actual_time = $actual_time + time_add
 	
 
@@ -230,8 +337,11 @@ def update_job_list(time_add)
 
 end
 
-update_job_list(0)
+print_steps("++++++++++++++++++++++++++++++ INIT first updates")
+update_job_list(0, true)
+update_job_list($actual_time, true)
 
+print_steps("++++++++++++++++++++++++++++++ END first updates")
 
 
 
@@ -265,6 +375,7 @@ def _apply_decay( decay_factor)
 	
 	itr = list_iterator_create_assoc_mgr_association_list();
 	itr.each { |assoc|
+#         puts "decay"+ assoc.usage_usage_raw.to_s + " XX "+ decay_factor.to_s;
 		assoc.usage_usage_raw *= decay_factor;
 		assoc.usage_usage_energy_raw *= decay_factor;
 # 		assoc.usage_grp_used_wall *= decay_factor;
@@ -296,7 +407,7 @@ def priority_p_set_assoc_usage(assoc)
 		child_str = assoc.acct;
 	end
 
-	if ($assoc_mgr_root_assoc.usage_usage_raw)
+	if ($assoc_mgr_root_assoc.usage_usage_raw != 0)
 		assoc.usage_usage_norm = assoc.usage_usage_raw / $assoc_mgr_root_assoc.usage_usage_raw;
 	else
 # 		/* This should only happen when no usage has occured
@@ -306,7 +417,7 @@ def priority_p_set_assoc_usage(assoc)
 	end
 
 	debug("Normalized usage for %s %s off %s %Lf / %Lf = %Lf",
-		     child, child_str, assoc.usage_parent_assoc_ptr.acct,
+		     child, child_str, assoc.parent_assoc_ptr.acct,
 		     assoc.usage_usage_raw,
 		     $assoc_mgr_root_assoc.usage_usage_raw,
 		     assoc.usage_usage_norm);
@@ -318,11 +429,11 @@ def priority_p_set_assoc_usage(assoc)
 		assoc.usage_usage_norm = 1.0;
 	end
 
-	if (assoc.usage_parent_assoc_ptr == $assoc_mgr_root_assoc)
+	if (assoc.parent_assoc_ptr == $assoc_mgr_root_assoc)
 		assoc.usage_usage_efctv = assoc.usage_usage_norm;
 		debug("Effective usage for %s %s off %s %Lf %Lf",
 			     child, child_str,
-			     assoc.usage_parent_assoc_ptr.acct,
+			     assoc.parent_assoc_ptr.acct,
 			     assoc.usage_usage_efctv,
 			     assoc.usage_usage_norm);
 	else
@@ -333,15 +444,15 @@ def priority_p_set_assoc_usage(assoc)
 			temp = (assoc.shares_raw / assoc.usage_level_shares)
 		end
 		assoc.usage_usage_efctv = assoc.usage_usage_norm +
-			((assoc.usage_parent_assoc_ptr.usage_usage_efctv -
+			((assoc.parent_assoc_ptr.usage_usage_efctv -
 			  assoc.usage_usage_norm) *
 			 (temp));
                 
 		debug("Effective usage for %s %s off %s %Lf + ((%Lf - %Lf) * %d / %d) = %Lf",
 			     child, child_str,
-			     assoc.usage_parent_assoc_ptr.acct,
+			     assoc.parent_assoc_ptr.acct,
 			     assoc.usage_usage_norm,
-			     assoc.usage_parent_assoc_ptr.usage_usage_efctv,
+			     assoc.parent_assoc_ptr.usage_usage_efctv,
 			     assoc.usage_usage_norm,
 			     (assoc.shares_raw == SLURMDB_FS_USE_PARENT ?
 			      0 : assoc.shares_raw),
@@ -353,18 +464,18 @@ end
 
 # extern void priority_p_set_assoc_energy_usage(slurmdb_association_rec_t *assoc)
 def priority_p_set_assoc_energy_usage(assoc)
-	char *child;
-	char *child_str;
+# 	char *child;
+# 	char *child_str;
 
-	if (assoc.user)
+	if (assoc != $assoc_mgr_root_assoc)
 		child = "user";
-		child_str = assoc.user;
+		child_str = assoc.name;
 	else
 		child = "account";
-		child_str = assoc.acct;
+		child_str = assoc.name;
 	end
 
-	if ($assoc_mgr_root_assoc.usage_usage_energy_raw)
+	if ($assoc_mgr_root_assoc.usage_usage_energy_raw != 0)
 		assoc.usage_usage_energy_norm = assoc.usage_usage_energy_raw / $assoc_mgr_root_assoc.usage_usage_energy_raw;
 	else
 # 		/* This should only happen when no usage has occured
@@ -374,7 +485,7 @@ def priority_p_set_assoc_energy_usage(assoc)
 	end
 
 	debug("Normalized Energy usage for %s %s off %s %Lf / %Lf = %Lf\n",
-		     child, child_str, assoc.usage_parent_assoc_ptr.acct,
+		     child, child_str, assoc.parent_assoc_ptr.acct,
 		     assoc.usage_usage_energy_raw,
 		     $assoc_mgr_root_assoc.usage_usage_energy_raw,
 		     assoc.usage_usage_energy_norm);
@@ -386,11 +497,11 @@ def priority_p_set_assoc_energy_usage(assoc)
 		assoc.usage_usage_energy_norm = 1.0;
 	end
 	
-	if (assoc.usage_parent_assoc_ptr == $assoc_mgr_root_assoc)
+	if (assoc.parent_assoc_ptr == $assoc_mgr_root_assoc)
 		assoc.usage_usage_energy_efctv = assoc.usage_usage_energy_norm;
 		debug("Effective energy usage for %s %s off %s %Lf %Lf\n",
 			     child, child_str,
-			     assoc.usage_parent_assoc_ptr.acct,
+			     assoc.parent_assoc_ptr.acct,
 			     assoc.usage_usage_energy_efctv,
 			     assoc.usage_usage_energy_norm);
 	else
@@ -401,14 +512,14 @@ def priority_p_set_assoc_energy_usage(assoc)
 			temp = (assoc.shares_raw / assoc.usage_level_shares)
 		end
 		assoc.usage_usage_energy_efctv = assoc.usage_usage_energy_norm +
-			((assoc.usage_parent_assoc_ptr.usage_usage_energy_efctv -
+			((assoc.parent_assoc_ptr.usage_usage_energy_efctv -
 			  assoc.usage_usage_energy_norm) *
 			 (temp));
 		debug("Effective energy usage for %s %s off %s %Lf + ((%Lf - %Lf) * %d / %d) = %Lf\n",
 			     child, child_str,
-			     assoc.usage_parent_assoc_ptr.acct,
+			     assoc.parent_assoc_ptr.acct,
 			     assoc.usage_usage_energy_norm,
-			     assoc.usage_parent_assoc_ptr.usage_usage_energy_efctv,
+			     assoc.parent_assoc_ptr.usage_usage_energy_efctv,
 			     assoc.usage_usage_energy_norm,
 			     ( (assoc.shares_raw == SLURMDB_FS_USE_PARENT) ? 0 : assoc.shares_raw),
 			     assoc.usage_level_shares,
@@ -434,7 +545,8 @@ def _set_children_usage_efctv(childern_list)
 	end
 	
 	childern_list.each {|assoc|
-		if (assoc.user)
+# 		if (assoc.user)
+		if (assoc != $assoc_mgr_root_assoc)
 # 			assoc.usage_usage_efctv = (long double)NO_VAL;
 # 			assoc.usage_usage_energy_efctv = (long double)NO_VAL;
 			assoc.usage_usage_efctv = 0#nil #NO_VAL;
@@ -442,7 +554,7 @@ def _set_children_usage_efctv(childern_list)
 		else
 			priority_p_set_assoc_usage(assoc);
 			priority_p_set_assoc_energy_usage(assoc);
-			_set_children_usage_efctv(assoc.usage_childern_list);
+			_set_children_usage_efctv(assoc.children);
 		end
 	 }
 	
@@ -772,7 +884,7 @@ def _decay_thread()
 		elapsed = now - start_time;
 		if (elapsed < calc_period)
 			debug("sleep for %u\n", (calc_period - elapsed));
-                        puts "to be ran: "+$jobs_to_be_ran.length.to_s + "  jobb_list: "+ $job_list.length.to_s
+#                         puts "to be ran: "+$jobs_to_be_ran.length.to_s + "  jobb_list: "+ $job_list.length.to_s
 # 			sleep(calc_period - elapsed);
 			update_job_list(calc_period - elapsed)
 			
@@ -782,19 +894,20 @@ def _decay_thread()
 		end
 # 		/* repeat ;) */
 		#or not ;)
-		if $jobs_to_be_ran.length == 0 && $job_list.length == 0 && $actual_time > $min_run_time
+		if $jobs_to_be_ran.length == 0 && $job_list.length == 0 && $list_of_print_time.length == 0
 			debug("THE END !\n")
 			return
 		end
 	end
 end
 
-puts "----------------------------------------------"
-puts $assoc_mgr_root_assoc.print_sshare()
-puts "----------------------------------------------"
+
+print_steps("++++++++++++++++++++++++++++++ INIT let's go !")
 _decay_thread()
-puts "----------------------------------------------"
-$assoc_mgr_root_assoc.print_sshare()
+print_steps("++++++++++++++++++++++++++++++ STOP let's go !")
+
+puts "---------------------------------------------- *At "+$actual_time.to_s+ ", last exec at "+(($actual_time/$slurm_get_priority_calc_period).floor*$slurm_get_priority_calc_period).to_s
+$assoc_mgr_root_assoc.print_parsable_or_sshare()
 puts "----------------------------------------------"
 
 

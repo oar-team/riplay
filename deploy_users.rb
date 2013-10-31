@@ -87,10 +87,10 @@ all_users = all_users_l.join(" ")
 if ($nodes == nil)
         p `for i in #{all_users}; do #{$command} #{$prefix}$i; done`
 else
-        p "for node in `cat #{$nodes}|sort -u`; do ssh $node 'for i in #{all_users}; do #{$command} #{$prefix}$i; done'; done"
+        p `for node in \`cat #{$nodes}|sort -u\`; do ssh $node 'for i in #{all_users}; do #{$command} #{$prefix}$i; done'; done`
 end
 
-p `#{$command_sacct} cluster cluster -i`
+p `#{$command_sacct} cluster ${cluster} -i`
 all_users_l.each do |u|
         if u != nil
                 if $delete

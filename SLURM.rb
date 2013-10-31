@@ -4,7 +4,7 @@ require 'pp'
 require "lib_swf.rb"
 require "JOB.rb"
 
-def sbatch(job, type, output_dir, schedule_now, use_users)
+def sbatch(job, type, output_dir, schedule_now, use_users, use_energy)
     job_id = job.job_id
     construct_script_slurm(job, type, output_dir, use_users)
     command = "sbatch"
@@ -13,6 +13,11 @@ def sbatch(job, type, output_dir, schedule_now, use_users)
 #        user_id = "%03d" % job.user_id
        user_id = job.user_id
        command = "#{command} --uid=user#{user_id}" 
+    end
+    
+    if use_energy
+       energy = job.energy
+       command = "#{command} --comment=\"energy:#{energy}\"" 
     end
     
     if(!schedule_now)
@@ -24,7 +29,7 @@ def sbatch(job, type, output_dir, schedule_now, use_users)
 end
 
 def slurmresume(jobs)
-    running_jobs = `squeue -u \`whoami\` | awk -F " "  '{print $1}' | grep -v 'JOBID'`
+    running_jobs = `squeue -a | awk -F " "  '{print $1}' | grep -v 'JOBID'`
     dodo = 0
     running_jobs.each do |job_id|
         command = "scontrol release #{job_id}"   # TODO: here we release all the jobs, need to do it properly
@@ -65,4 +70,11 @@ def construct_script_slurm(job, type, output_dir, use_users)
 
     end
     `chmod 777 #{output_dir}/#{job_id}.slurm.job`
+end
+
+
+def slurmset_powercap(cap)
+	command = "scontrol update powercap="+cap.to_s
+	puts "# bash -c '#{command}'"
+	print `bash -c '#{command}'`
 end

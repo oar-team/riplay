@@ -16,18 +16,21 @@ def usage_message
 Usage ./riplay [OPTIONS]
 
         OPTIONS:
-                --swf_file | -f swf_file: specify the workload file
-                --batch | -b batch: specify the batch scheduler to use (OAR or SLURM)
-                --job_type | -j job_type: specify the job type (ior or sleep) 
-                --output_dir | -o output_dir: specify the output_dir
-                --startjob | -s job_id: starting job id
-                --endjob | -e job_id: ending job id
-                --help | -h display this help message
-                --debug | -d debug mode
-                --scale | -x nb_procs: number of procs in the cluster where the trace will be submitted
+                --swf_file | -f swf_file     : specify the workload file
+                --batch | -b batch           : specify the batch scheduler to use (OAR or SLURM)
+                --job_type | -j job_type     : specify the job type (ior or sleep) 
+                --output_dir | -o output_dir : specify the output_dir
+                --startjob | -s job_id       : starting job id
+                --endjob | -e job_id         : ending job id
+                --help | -h                  : display this help message
+                --debug | -d                 : debug mode
+                --scale | -x nb_procs        : number of procs in the cluster where the trace will be submitted
                 --time_scale | -t coefficient: timescale reducing coefficient
-                --replay_environment | -r replay the trace in its environment (queued and running jobs)
-                --users | -u submit job as users (only works with slurm)
+                --replay_environment | -r    : replay the trace in its environment (queued and running jobs)
+                --users | -u                 : submit job with users (only works with slurm)
+                --energy | -w                : submit job with energy in comment (only works with slurm)
+                --powercap | -p              : submit powercaps to slurm (read from swf PowerCapValues header)
+                --security_time wait_time    : riplay will wait wait_time seconds between the env setup and the run (default: 0)
 EOS
 end
 
@@ -43,7 +46,10 @@ opts = GetoptLong.new(
 [ "--scale","-x",              GetoptLong::REQUIRED_ARGUMENT ],
 [ "--time_scale","-t",              GetoptLong::REQUIRED_ARGUMENT ],
 [ "--replay_environment","-r",              GetoptLong::NO_ARGUMENT ],
-[ "--users","-u",              GetoptLong::NO_ARGUMENT ]
+[ "--users","-u",              GetoptLong::NO_ARGUMENT ],
+[ "--energy","-w",              GetoptLong::NO_ARGUMENT ],
+[ "--powercap","-p",              GetoptLong::NO_ARGUMENT ],
+[ "--security_time","-z",              GetoptLong::REQUIRED_ARGUMENT ]
 )
 
 $job_type = 'sleep'
@@ -51,6 +57,9 @@ $output_dir = '.'
 $debug = false
 $env = false
 $use_users = false 
+$use_energy = false 
+$use_powercap = false 
+$security_time_wait_running = 0
 
 opts.each do |option, value| 
         if (option == "--swf_file")
@@ -75,6 +84,12 @@ opts.each do |option, value|
                 $env = true 
         elsif (option == "--users")
                 $use_users = true
+        elsif (option == "--energy")
+                $use_energy = true
+        elsif (option == "--powercap")
+                $use_powercap = true
+        elsif (option == "--security_time")
+                $security_time_wait_running = value
         elsif (option == "--help")
                 puts usage_message
                 exit 0
@@ -85,8 +100,8 @@ if ($use_users && Process.uid != 0)
         puts 'With option "--users", riplay must run as root.' 
         exit 1
 end
-if ($use_users && $batch == 'OAR')
-        puts 'OAR can\'t deal with option "--users" for now.' 
+if ( ($use_users or $use_energy) && $batch == 'OAR')
+        puts 'OAR can\'t deal with options "--users" and "--energy" for now.' 
         exit 1
 end
 if ($use_users)
@@ -102,7 +117,7 @@ def submit(job, schedule_now)
     if ($batch == "OAR" || $batch == "oar" )
         oarsub(job, $job_type, $output_dir, schedule_now)
     elsif ($batch == "SLURM" || $batch == "slurm" )      
-        sbatch(job, $job_type, $output_dir, schedule_now, $use_users)
+        sbatch(job, $job_type, $output_dir, schedule_now, $use_users, $use_energy)
     end
 end
 
@@ -114,12 +129,33 @@ def resume(jobs_to_resume)
     end
 end
 
+def set_powercap(cap)
+    if ($batch == "OAR" || $batch == "oar" )
+        oarset_powercap(cap)
+    elsif ($batch == "SLURM" || $batch == "slurm" )      
+        slurmset_powercap(cap)
+    end
+end
+
 ############
 # MAIN
 ############
 date = `date +%s`.chomp
 puts "#{date} -- Loading Workload File..." if $debug
 jobs = load_swf_file($swf_file, $initial_job, $ending_job)
+
+
+if $use_powercap && jobs["info"]["stat"].powercap == nil
+	p "Error: No powercap data in the swf file."
+	p "Exemple:"
+	p "; PowerCapValues: 0=>42000, 50=>12000, 150=>42000"
+	exit()
+end
+
+if $use_powercap
+	powercaps = jobs["info"]["stat"].powercap
+end
+
 
 jobs_running={}
 jobs_queued={}
@@ -128,11 +164,11 @@ if($env)
 jobs_running = load_swf_file("#{$swf_file}.running", nil, nil)
 jobs_queued = load_swf_file("#{$swf_file}.queued", nil, nil)
 end
-#if jobs["info"]["bad_stat"].bad_jobs!=0 
-    #puts "Some jobs were BAD: "
-    #pp jobs["info"]["bad_stat"]
-    #exit 1
-#end
+if jobs["info"]["bad_stat"].bad_jobs!=0 
+    puts "Some jobs were BAD: "
+    pp jobs["info"]["bad_stat"]
+    exit 1
+end
 
 # SCALE WORKLOAD RESOURCES ALLOC TO THE CLUSTER SIZE # TODO: more intelligent scaling
 procs_in_trace = jobs["info"]["stat"].nb_procs.to_i
@@ -171,7 +207,12 @@ if $scale != nil
         end                    
     end
     
-    
+	if $use_powercap
+		powercaps.each_pair do |t, v|
+			v = v*procs_in_cluster/procs_in_trace
+		end
+	end
+
 end
 #
 
@@ -225,6 +266,11 @@ if $timescale != nil
         end                    
     end
     
+	if $use_powercap
+		powercaps.each_pair do |t, v|
+			t = t/$timescale.to_f
+		end
+	end
 end
 #
 
@@ -247,9 +293,15 @@ jobs.keys.sort.each do |job_id|
 end
 
 
+if $use_powercap
+	#set powercap to the first value
+	set_powercap(powercaps[0][1])
+end
+
+
 ### time to wait for all the running jobs to run, must be added to runtime and walltime
 #security_time_wait_running = 60
-security_time_wait_running = 0
+security_time_wait_running = $security_time_wait_running
 
 # submit running jobs
 date = `date +%s`.chomp
@@ -292,6 +344,15 @@ resume(jobs_queued) if(!jobs_queued.empty?)
 threads_timeslot = []
 date = `date +%s`.chomp
 puts "#{date} -- Starting workload trace submission..." if $debug
+
+if $use_powercap
+	powercaps.each do |p|
+		threads_timeslot << Thread.new {
+			sleep p[0]
+			set_powercap(p[1])
+		}
+	end
+end
 
 submission_hash.keys.sort.each do |subtime|
     job_ids = submission_hash[subtime]

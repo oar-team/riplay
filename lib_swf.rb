@@ -3,7 +3,7 @@
 #
 Job =  Struct.new(
 :job_id, :submit_time, :wait_time, :run_time, :procs_alloc, :cpu_time_used, :used_memory, :procs_req, :run_time_req, :mem_req, 
-    :status, :user_id, :group_id, :exe_num, :queue_id, :partition_id, :preceding_job_id, :preceding_job_think_time
+    :status, :user_id, :group_id, :exe_num, :queue_id, :partition_id, :preceding_job_id, :preceding_job_think_time, :energy
 )
 
 # class Job_List < Array
@@ -16,7 +16,7 @@ Job =  Struct.new(
 # end
 
 BadStat = Struct.new(:bad_jobs, :zero_time_jobs, :zero_procs_jobs, :non_1_status_jobs, :bad_data_jobs, :walltime_exceeded)
-SwfStat = Struct.new(:nb_jobs,:start_time,:nb_procs,:nb_nodes,:timezone)
+SwfStat = Struct.new(:nb_jobs,:start_time,:nb_procs,:nb_nodes,:timezone,:powercap)
 
 
 # rubyfication from parse_swf
@@ -85,6 +85,11 @@ def load_swf_file(file_name, job_start, job_end)
                             stat.nb_procs = $1
 			elsif line =~ /^;\s*MaxNodes:\s*(\d+).*$/
                             stat.nb_nodes = $1
+			elsif line =~ /^;\s*PowerCapValues:\s*(.*)\s*$/
+				tmp = $1.scan(/(\d+)\s*=>\s*(\d+)/)
+				tmp.map! { |i| [i[0].to_i,i[1].to_i] }
+				tmp.sort! { |a,b| a[0] <=> b[0] }
+				stat.powercap = tmp
 			end
 		else                    
                         # JOBS INFO
