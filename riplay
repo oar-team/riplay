@@ -60,6 +60,7 @@ $use_users = false
 $use_energy = false 
 $use_powercap = false 
 $security_time_wait_running = 0
+$batch = ""
 
 opts.each do |option, value| 
         if (option == "--swf_file")
@@ -96,6 +97,11 @@ opts.each do |option, value|
   end
 end
 
+if($batch == '')
+	puts "You have to choose a batch."
+	exit 1
+end
+
 if ($use_users && Process.uid != 0)
         puts 'With option "--users", riplay must run as root.' 
         exit 1
@@ -129,11 +135,11 @@ def resume(jobs_to_resume)
     end
 end
 
-def set_powercap(cap)
+def make_energy_resv(time, duration, watts)
     if ($batch == "OAR" || $batch == "oar" )
-        oarset_powercap(cap)
-    elsif ($batch == "SLURM" || $batch == "slurm" )      
-        slurmset_powercap(cap)
+        oarmake_energy_resv(time, duration, watts)
+    elsif ($batch == "SLURM" || $batch == "slurm" )
+        slurmmake_energy_resv(time, duration, watts)
     end
 end
 
@@ -145,15 +151,18 @@ puts "#{date} -- Loading Workload File..." if $debug
 jobs = load_swf_file($swf_file, $initial_job, $ending_job)
 
 
-if $use_powercap && jobs["info"]["stat"].powercap == nil
+if $use_powercap && (jobs["info"]["stat"].powercap_resvs == nil ||  jobs["info"]["stat"].powercap_value == nil)
 	p "Error: No powercap data in the swf file."
 	p "Exemple:"
-	p "; PowerCapValues: 0=>42000, 50=>12000, 150=>42000"
+	p "; PowerCapValue: 12000"
+	p "; PowerCapResvs: (5,0,7) (10,11,51)"
+	p "                 (start, duration, watt) ..."
 	exit()
 end
 
 if $use_powercap
-	powercaps = jobs["info"]["stat"].powercap
+	powercap_resvs = jobs["info"]["stat"].powercap_resvs
+	powercap_value = jobs["info"]["stat"].powercap_value
 end
 
 
@@ -208,8 +217,8 @@ if $scale != nil
     end
     
 	if $use_powercap
-		powercaps.each_pair do |t, v|
-			v = v*procs_in_cluster/procs_in_trace
+		powercap_resvs.each do |t|
+			t[2] = t[2]*procs_in_cluster/procs_in_trace
 		end
 	end
 
@@ -267,8 +276,9 @@ if $timescale != nil
     end
     
 	if $use_powercap
-		powercaps.each_pair do |t, v|
-			t = t/$timescale.to_f
+		powercap_resvs.each do |t|
+			t[0] = t[0]/$timescale.to_f
+			t[1] = t[1]/$timescale.to_f
 		end
 	end
 end
@@ -293,15 +303,16 @@ jobs.keys.sort.each do |job_id|
 end
 
 
-if $use_powercap
-	#set powercap to the first value
-	set_powercap(powercaps[0][1])
-end
-
-
 ### time to wait for all the running jobs to run, must be added to runtime and walltime
 #security_time_wait_running = 60
 security_time_wait_running = $security_time_wait_running
+
+
+if $use_powercap
+	powercap_resvs.each do |p|
+		make_energy_resv(p[0], p[1], p[2])
+	end
+end
 
 # submit running jobs
 date = `date +%s`.chomp
@@ -344,15 +355,6 @@ resume(jobs_queued) if(!jobs_queued.empty?)
 threads_timeslot = []
 date = `date +%s`.chomp
 puts "#{date} -- Starting workload trace submission..." if $debug
-
-if $use_powercap
-	powercaps.each do |p|
-		threads_timeslot << Thread.new {
-			sleep p[0]
-			set_powercap(p[1])
-		}
-	end
-end
 
 submission_hash.keys.sort.each do |subtime|
     job_ids = submission_hash[subtime]

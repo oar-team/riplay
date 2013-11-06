@@ -50,6 +50,6 @@ def construct_script_oar(job, type, output_dir)
     `chmod 777 #{output_dir}/#{job_id}.oar.job`
 end
 
-def oarset_powercap(cap)
+def oarmake_energy_resv(time, duration, watts)
 	puts "WARNING: PowerCap not implemented yet!"
 end
