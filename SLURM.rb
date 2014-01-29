@@ -74,7 +74,7 @@ end
 
 
 def slurmmake_energy_resv(time, duration, watts)
-	d = (duration/60).to_i
+	d = (duration.to_i/60).to_i
 	command = "scontrol create res FLAG=LICENSE_ONLY starttime=now+#{time} duration=#{d} Watts=#{watts} Users=root"
 	puts "# bash -c '#{command}'"
 	print `bash -c '#{command}'`

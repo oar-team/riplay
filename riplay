@@ -305,7 +305,7 @@ end
 
 ### time to wait for all the running jobs to run, must be added to runtime and walltime
 #security_time_wait_running = 60
-security_time_wait_running = $security_time_wait_running
+security_time_wait_running = $security_time_wait_running.to_i
 
 
 if $use_powercap
