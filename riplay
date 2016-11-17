@@ -3,9 +3,9 @@
 # resubmit a swf trace file
 require 'pp'
 require 'getoptlong'
-require "lib_swf.rb"
-require "OAR.rb"
-require "SLURM.rb"
+require_relative "lib_swf.rb"
+require_relative "OAR.rb"
+require_relative "SLURM.rb"
 
 ############
 # Options

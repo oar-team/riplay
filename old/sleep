@@ -1,4 +1,0 @@
-#!/bin/bash
-DURATION=$1
-
-sleep $1

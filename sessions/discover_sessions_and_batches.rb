@@ -3,7 +3,7 @@
 #require 'rubygems'
 require 'getoptlong'
 require 'pp'
-require "../lib_swf.rb"
+require_relative "../lib_swf.rb"
 
 
 fix_session_threshold = 60*60*0

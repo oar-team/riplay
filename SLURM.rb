@@ -1,8 +1,8 @@
 #!/usr/bin/ruby
  
 require 'pp'
-require "lib_swf.rb"
-require "JOB.rb"
+require_relative "lib_swf.rb"
+require_relative "JOB.rb"
 
 def sbatch(job, type, output_dir, schedule_now, use_users, use_energy)
     job_id = job.job_id
